@@ -105,7 +105,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .catalog-add-row { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; background: var(--surface2); border-top: 1px dashed var(--border3); flex-wrap: wrap; }
 .catalog-add-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
 /* COLLAPSIBLE SETTINGS */
-/* MARKETPLACE */
+/* MODE TOGGLE */
+.mode-btn { flex:1; padding:9px 10px; border-radius:var(--radius-sm); border:1px solid var(--border2); background:var(--surface2); color:var(--text2); font-size:12px; font-weight:600; cursor:pointer; transition:all .18s; font-family:var(--font-body); text-align:center; }
+.mode-btn:hover { border-color:var(--border3); color:var(--text); }
+.mode-btn.active { background:var(--surface3); border-color:var(--accent); color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.mode-btn.active[id="mode-btn-day"] { border-color:var(--yellow); color:var(--yellow); box-shadow:0 0 0 1px var(--yellow); }
+.mode-btn.active[id="mode-btn-night"] { border-color:var(--blue); color:var(--blue); box-shadow:0 0 0 1px var(--blue); }
 .market-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; }
 .market-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; transition:transform .2s,border-color .2s; }
 .market-card:hover { transform:translateY(-4px); border-color:var(--border3); box-shadow:0 12px 32px rgba(249,115,22,.1); }
@@ -760,6 +765,22 @@ details[open] > summary span:first-child { transform: rotate(90deg); }
         <div class="form-group">
           <label class="form-label">Grid Availability (hrs/day)</label>
           <input type="number" class="form-input" id="grid-hours" value="4" min="0" max="24">
+        </div>
+        <!-- DAY / NIGHT / SYSTEM DEFAULT TOGGLE -->
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">System Operating Mode</label>
+          <div style="display:flex;gap:8px;margin-top:4px" id="mode-toggle">
+            <button class="mode-btn active" id="mode-btn-default" onclick="setSystemMode('default')" title="Use full 24hr energy cycle">
+              ⚡ System Default
+            </button>
+            <button class="mode-btn" id="mode-btn-day" onclick="setSystemMode('day')" title="Daytime only — solar direct, no battery overnight">
+              ☀️ Day
+            </button>
+            <button class="mode-btn" id="mode-btn-night" onclick="setSystemMode('night')" title="Night mode — battery powers all loads">
+              🌙 Night
+            </button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px" id="mode-desc">Full 24-hour cycle — panels charge batteries by day, batteries power loads at night.</div>
         </div>
       </div>
 
@@ -2047,6 +2068,27 @@ function showToast(msg, type) {
 }
 
 // ============================================================
+// SYSTEM OPERATING MODE (Day / Night / Default)
+// ============================================================
+let _systemMode = 'default'; // 'default' | 'day' | 'night'
+
+function setSystemMode(mode) {
+  _systemMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('mode-btn-' + mode);
+  if (btn) btn.classList.add('active');
+  const desc = document.getElementById('mode-desc');
+  if (desc) {
+    desc.textContent = mode === 'day'
+      ? '☀️ Day mode — solar panels power loads directly; battery sized for daytime peak only.'
+      : mode === 'night'
+      ? '🌙 Night mode — battery must cover all loads overnight; larger battery bank recommended.'
+      : '⚡ System Default — full 24-hour cycle. Panels charge batteries by day, batteries power loads at night.';
+  }
+  recalculate();
+}
+
+// ============================================================
 // NAVIGATION
 // ============================================================
 function showPage(id) {
@@ -2232,8 +2274,13 @@ function calcSystem(appliances, opts) {
   const dailyKWh      = totalEnergyWh / 1000;
   const totalEnergyKWh = dailyKWh;
 
-  // ── Step 2: System losses (+20%) ───────────────────────────
-  const adjustedEnergyWh  = totalEnergyWh * 1.20;
+  // ── Step 2: System losses (+20%) + mode adjustment ────────
+  const modeMultiplier = (typeof _systemMode !== 'undefined' && _systemMode === 'day')
+    ? 0.5   // day: only need ~50% — solar covers most directly
+    : (typeof _systemMode !== 'undefined' && _systemMode === 'night')
+    ? 1.4   // night: add extra 40% — battery must carry full night load
+    : 1.0;  // default: standard
+  const adjustedEnergyWh  = totalEnergyWh * 1.20 * modeMultiplier;
   const adjustedEnergyKWh = adjustedEnergyWh / 1000;
 
   // ── Step 3: Battery chain ──────────────────────────────────
@@ -3110,7 +3157,7 @@ function renderCatalog() {
       headers = `<th>Brand Name</th><th>Wattage (W)</th><th>Base Price (${curCode})</th><th>Dealer Price (${curCode})</th><th>User Price (+10%) (${curCode})</th><th></th>`;
       rowFn = (item, ii) => `
         <tr>
-          <td><input class="catalog-inp" style="width:130px" value="${item.label}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)" placeholder="e.g. Jinko 450W"></td>
+          <td><input class="catalog-inp" style="width:130px" value="${item.label||brand.brand}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)" placeholder="${brand.brand}"></td>
           <td><input class="catalog-inp" type="number" style="width:80px" value="${item.watt||0}" onchange="catalogBlur('${tab}',${bi},${ii},'watt',this.value)"></td>
           <td><input class="catalog-inp" type="number" style="width:120px" value="${item.dealerPrice}" data-tab="${tab}" data-bi="${bi}" data-ii="${ii}" data-field="dealerPrice" onchange="catalogBlur(\'${tab}\',${bi},${ii},\'dealerPrice\',this.value)" title="Enter base price in NGN — displays in ${curCode}"><br><span style="font-size:10px;color:var(--text3)"><span class="catalog-price-preview">${fmtCur(item.dealerPrice)}</span></span></td>
           <td style="font-weight:600;color:var(--text)">${fmtCur(item.dealerPrice)}</td>
@@ -3121,7 +3168,7 @@ function renderCatalog() {
       headers = `<th>Variant</th><th>Ah</th><th>Voltage (V)</th><th>Base Price (${curCode})</th><th>Dealer Price (${curCode})</th><th>User Price (+10%) (${curCode})</th><th></th>`;
       rowFn = (item, ii) => `
         <tr>
-          <td><input class="catalog-inp" style="width:130px" value="${item.label}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)"></td>
+          <td><input class="catalog-inp" style="width:130px" value="${item.label||brand.brand}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)" placeholder="${brand.brand}"></td>
           <td><input class="catalog-inp" type="number" style="width:70px" value="${item.ah}" onchange="catalogBlur('${tab}',${bi},${ii},'ah',this.value)"></td>
           <td><input class="catalog-inp" type="number" style="width:70px" value="${item.volt}" onchange="catalogBlur('${tab}',${bi},${ii},'volt',this.value)"></td>
           <td><input class="catalog-inp" type="number" style="width:120px" value="${item.dealerPrice}" data-tab="${tab}" data-bi="${bi}" data-ii="${ii}" data-field="dealerPrice" onchange="catalogBlur(\'${tab}\',${bi},${ii},\'dealerPrice\',this.value)" title="Enter base price in NGN — displays in ${curCode}"><br><span style="font-size:10px;color:var(--text3)"><span class="catalog-price-preview">${fmtCur(item.dealerPrice)}</span></span></td>
@@ -3130,15 +3177,28 @@ function renderCatalog() {
           <td><button class="catalog-del-btn" onclick="deleteCatalogItem('${tab}',${bi},${ii})">✕</button></td>
         </tr>`;
     } else if (tab === 'inverters') {
-      headers = `<th>Brand / Model</th><th>kW</th><th>Voltage (V)</th><th>PV Input (kW)</th><th>MPPT No.</th><th>Base Price (${curCode})</th><th>Dealer Price (${curCode})</th><th>User Price (+10%) (${curCode})</th><th></th>`;
+      headers = `<th>Brand / Model</th><th>kW</th><th>Voltage (V)</th><th>PV Input (kW)</th><th>MPPT No.</th><th>MPPT</th><th>Parallel</th><th>Max Parallel</th><th>Base Price (${curCode})</th><th>Dealer Price (${curCode})</th><th>User Price (+10%) (${curCode})</th><th></th>`;
       rowFn = (item, ii) => `
         <tr>
-          <td><input class="catalog-inp" style="width:130px" value="${item.label}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)" placeholder="${brand.brand}"></td>
-          <td><input class="catalog-inp" type="number" style="width:65px" value="${item.kw}" onchange="catalogBlur('${tab}',${bi},${ii},'kw',this.value)"></td>
-          <td><input class="catalog-inp" type="number" style="width:65px" value="${item.volt}" onchange="catalogBlur('${tab}',${bi},${ii},'volt',this.value)"></td>
-          <td><input class="catalog-inp" type="number" style="width:75px" value="${item.pvInput||0}" onchange="catalogBlur('${tab}',${bi},${ii},'pvInput',this.value)" placeholder="0"></td>
-          <td><input class="catalog-inp" type="number" style="width:65px" value="${item.mpptNo||1}" onchange="catalogBlur('${tab}',${bi},${ii},'mpptNo',this.value)" placeholder="1" min="1"></td>
-          <td><input class="catalog-inp" type="number" style="width:110px" value="${item.dealerPrice}" data-tab="${tab}" data-bi="${bi}" data-ii="${ii}" data-field="dealerPrice" onchange="catalogBlur(\'${tab}\',${bi},${ii},\'dealerPrice\',this.value)" title="Enter base price in NGN — displays in ${curCode}"><br><span style="font-size:10px;color:var(--text3)"><span class="catalog-price-preview">${fmtCur(item.dealerPrice)}</span></span></td>
+          <td><input class="catalog-inp" style="width:120px" value="${item.label||brand.brand}" oninput="updateCatalogItem('${tab}',${bi},${ii},'label',this.value)" placeholder="${brand.brand}"></td>
+          <td><input class="catalog-inp" type="number" style="width:60px" value="${item.kw}" onchange="catalogBlur('${tab}',${bi},${ii},'kw',this.value)"></td>
+          <td><input class="catalog-inp" type="number" style="width:60px" value="${item.volt}" onchange="catalogBlur('${tab}',${bi},${ii},'volt',this.value)"></td>
+          <td><input class="catalog-inp" type="number" style="width:70px" value="${item.pvInput||0}" onchange="catalogBlur('${tab}',${bi},${ii},'pvInput',this.value)" placeholder="0"></td>
+          <td><input class="catalog-inp" type="number" style="width:60px" value="${item.mpptNo||1}" onchange="catalogBlur('${tab}',${bi},${ii},'mpptNo',this.value)" placeholder="1" min="1"></td>
+          <td>
+            <select class="catalog-inp" style="width:68px" onchange="catalogBlur('${tab}',${bi},${ii},'hasMppt',this.value)">
+              <option value="yes" ${(item.hasMppt||'yes')==='yes'?'selected':''}>Yes</option>
+              <option value="no"  ${item.hasMppt==='no'?'selected':''}>No</option>
+            </select>
+          </td>
+          <td>
+            <select class="catalog-inp" style="width:68px" onchange="catalogBlur('${tab}',${bi},${ii},'parallel',this.value)">
+              <option value="yes" ${(item.parallel||'yes')==='yes'?'selected':''}>Yes</option>
+              <option value="no"  ${item.parallel==='no'?'selected':''}>No</option>
+            </select>
+          </td>
+          <td><input class="catalog-inp" type="number" style="width:60px" value="${item.maxParallel||2}" onchange="catalogBlur('${tab}',${bi},${ii},'maxParallel',this.value)" placeholder="2" min="1"></td>
+          <td><input class="catalog-inp" type="number" style="width:100px" value="${item.dealerPrice}" data-tab="${tab}" data-bi="${bi}" data-ii="${ii}" data-field="dealerPrice" onchange="catalogBlur(\'${tab}\',${bi},${ii},\'dealerPrice\',this.value)" title="Enter base price in NGN — displays in ${curCode}"><br><span style="font-size:10px;color:var(--text3)"><span class="catalog-price-preview">${fmtCur(item.dealerPrice)}</span></span></td>
           <td style="font-weight:600;color:var(--text)">${fmtCur(item.dealerPrice)}</td>
           <td class="catalog-user-price">${fmtCur(Math.round(item.dealerPrice * 1.1))}</td>
           <td><button class="catalog-del-btn" onclick="deleteCatalogItem('${tab}',${bi},${ii})">✕</button></td>
@@ -3178,12 +3238,15 @@ function renderCatalog() {
     } else if (tab === 'inverters') {
       addRow = `
         <div class="catalog-add-row">
-          <div><div class="catalog-add-label">Brand / Model</div><input class="catalog-inp" id="add-${bi}-label" placeholder="${brand.brand}" style="width:110px" value="${brand.brand}"></div>
-          <div><div class="catalog-add-label">kW</div><input class="catalog-inp" type="number" id="add-${bi}-kw" placeholder="8" style="width:60px"></div>
-          <div><div class="catalog-add-label">Volts</div><input class="catalog-inp" type="number" id="add-${bi}-volt" placeholder="48" style="width:60px"></div>
-          <div><div class="catalog-add-label">PV Input (kW)</div><input class="catalog-inp" type="number" id="add-${bi}-pvInput" placeholder="0" style="width:65px"></div>
-          <div><div class="catalog-add-label">MPPT No.</div><input class="catalog-inp" type="number" id="add-${bi}-mpptNo" placeholder="1" style="width:55px" min="1"></div>
-          <div><div class="catalog-add-label">Dealer Price</div><input class="catalog-inp" type="number" id="add-${bi}-price" placeholder="1500000" style="width:110px"></div>
+          <div><div class="catalog-add-label">Brand / Model</div><input class="catalog-inp" id="add-${bi}-label" placeholder="${brand.brand}" style="width:100px" value="${brand.brand}"></div>
+          <div><div class="catalog-add-label">kW</div><input class="catalog-inp" type="number" id="add-${bi}-kw" placeholder="8" style="width:55px"></div>
+          <div><div class="catalog-add-label">Volts</div><input class="catalog-inp" type="number" id="add-${bi}-volt" placeholder="48" style="width:55px"></div>
+          <div><div class="catalog-add-label">PV (kW)</div><input class="catalog-inp" type="number" id="add-${bi}-pvInput" placeholder="0" style="width:55px"></div>
+          <div><div class="catalog-add-label">MPPT No.</div><input class="catalog-inp" type="number" id="add-${bi}-mpptNo" placeholder="1" style="width:50px" min="1"></div>
+          <div><div class="catalog-add-label">MPPT</div><select class="catalog-inp" id="add-${bi}-hasMppt" style="width:65px"><option value="yes">Yes</option><option value="no">No</option></select></div>
+          <div><div class="catalog-add-label">Parallel</div><select class="catalog-inp" id="add-${bi}-parallel" style="width:65px"><option value="yes">Yes</option><option value="no">No</option></select></div>
+          <div><div class="catalog-add-label">Max //</div><input class="catalog-inp" type="number" id="add-${bi}-maxParallel" placeholder="2" style="width:50px" min="1"></div>
+          <div><div class="catalog-add-label">Dealer Price</div><input class="catalog-inp" type="number" id="add-${bi}-price" placeholder="1500000" style="width:100px"></div>
           <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;align-self:flex-end" onclick="addCatalogItem('${tab}',${bi})">+ Add</button>
         </div>`;
     } else {
@@ -3264,10 +3327,13 @@ function addCatalogItem(tab, bi) {
     item.volt = parseFloat(document.getElementById(`add-${bi}-volt`)?.value) || 0;
     item.kwh  = null;
   } else if (tab === 'inverters') {
-    item.kw      = parseFloat(document.getElementById(`add-${bi}-kw`)?.value)      || 0;
-    item.volt    = parseFloat(document.getElementById(`add-${bi}-volt`)?.value)    || 0;
-    item.pvInput = parseFloat(document.getElementById(`add-${bi}-pvInput`)?.value) || 0;
-    item.mpptNo  = parseInt(document.getElementById(`add-${bi}-mpptNo`)?.value)    || 1;
+    item.kw          = parseFloat(document.getElementById(`add-${bi}-kw`)?.value)          || 0;
+    item.volt        = parseFloat(document.getElementById(`add-${bi}-volt`)?.value)        || 0;
+    item.pvInput     = parseFloat(document.getElementById(`add-${bi}-pvInput`)?.value)     || 0;
+    item.mpptNo      = parseInt(document.getElementById(`add-${bi}-mpptNo`)?.value)        || 1;
+    item.hasMppt     = document.getElementById(`add-${bi}-hasMppt`)?.value                || 'yes';
+    item.parallel    = document.getElementById(`add-${bi}-parallel`)?.value               || 'yes';
+    item.maxParallel = parseInt(document.getElementById(`add-${bi}-maxParallel`)?.value)   || 2;
   }
   // accessories: just label + price, no extra fields
 
